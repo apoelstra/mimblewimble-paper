@@ -4,6 +4,7 @@
 \usepackage[onehalfspacing]{setspace}
 \usepackage{mathptmx}
 \usepackage{amsmath,amssymb,wasysym,amsthm}
+\usepackage{hyperref}
 \usepackage{lineno,gitinfo}
 
 \newtheorem{lmma}{Lemma}
@@ -39,7 +40,7 @@ Sorry to be a tease. Full version forthcoming.}
 
 At about 04:30 UTC on the morning of August 2nd, 2016, an anonymous person
 using the name Tom Elvis Jedusor signed onto a Bitcoin research IRC channel,
-dropped a document hosted on a Tor hidden service TODO CITE, then signed out. The
+dropped a document hosted on a Tor hidden service\cite{voldemort2016}, then signed out. The
 document, titled Mimblewimble, described a blockchain with a radically
 different approach to transaction construction from Bitcoin, supporting
 noninteractive merging and cut-through of transactions, confidential
@@ -54,17 +55,40 @@ further scaling improvements developed by the author.
 
 \paragraph{License.} This work is released into the public domain.
 
+\clearpage
+\tableofcontents
+
 \modulolinenumbers[10]
 \linenumbers
 
 \section{Introduction}
 
-standard blurb about the history of bitcoin, its current size and verification
-burden, extensive engineering effort put forth to keep it manageable, still
-large (and growing linearly!), most ppl don't even do sig verification before
-30000 blocks ago or whatever, maybe a hat-tip to the blocksize arguments,
-point out current CT would've put us at like a Tb of data (TODO update for
-new CT optimizations)
+In 2009, Satoshi Nakamoto introduced the Bitcoin cryptocurrency\cite{nakamoto2009},
+an online currency system to allow peer-to-peer transfer of digital tokens.
+These tokens' ownership is ascertained by the use of public keys, and transfer
+is accomplished by means of a public ledger, a globally replicated list of
+transactions which destroy \emph{unspent transaction outputs} (UTXOs) and
+create new ones of equal value but different keys.
+
+All Bitcoin coins originate in \emph{coinbase transactions}, transactions which
+create new outputs without destroying any old ones, and which are limited in
+value to maintain a fixed inflation schedule. Once created, they change hands
+by means of ordinary transactions. This means that new users, in order to
+fully verify that their view of the system is uncompromised (absent theft or
+illegal inflation), must download and validate the entire history from the
+system's genesis in 2009 until today. In other words, they must download
+and ``replay'' every transaction that has ever occurred.
+
+Today the Bitcoin blockchain sits just shy of 100Gb on the author's disk.
+Had Bitcoin used Confidential Transactions\cite{maxwell2015} (CT), each of the
+approximately 430 million outputs would consume 2.5Kb each, totalling over
+a terabyte of historical data\footnote{The author is aware of unpublished
+research that would reduce this quantity by about 25\%; the total is still
+formidable.}.
+
+In this paper, we describe a research project to design a Bitcoin-like
+cryptocurrency, which achieves dramatically better scaling and privacy
+properties than Bitcoin, though at cost of sacrificing functionality.
 
 \subsection{Overview and Goals}
 
@@ -72,14 +96,23 @@ Mimblewimble is a design for a cryptocurrency whose history can be
 compacted and quickly verified with trivial computing hardware even
 after many years of chain operation. As a secondary goal, it should
 support strong user privacy by means of confidential transactions
-and an obfuscated transaction graph.
+and an obfuscated transaction graph. However, to achieve these goals,
+Mimblewimble cannot support a general-purpose scripting system such
+as that in Bitcoin. This precludes such functionality as zero-knowledge
+contingent payments\cite{maxwell2016}, cross-chain atomic swaps\cite{nolan2013}
+and micropayment channels\cite{poon+dryja2016}. Further research is
+needed to emulate these functionalities on top of Mimblewimble, and
+is discussed in Section \ref{sec:ext}.
 
 More precisely,
 \begin{itemize}
-\item All transactions should use confidential transactions (TODO CITE CT)
+\item Direct transfer of value between parti(es) to other parti(es)
+should be possible on the system.
+
+\item All transactions should use confidential transactions
 to blind their output amounts.
 
-\item Transactions should be noninteractively aggregable (TODO CITE OWAS)
+\item Transactions should be noninteractively aggregable\cite{mouton2013},
 such that parties not privy to the original transactions are unable to
 separate them. This can improve censorship resistance and privacy,
 though it is unclear how to design a safe peer-to-peer network capable
@@ -94,9 +127,20 @@ As described in the next section, and more thoroughly in Section
 \ref{sec:consensus}, Mimblewimble has a scheme for compressing blockchain
 history to a size polylog in the original size, which in practice for a
 system with Bitcoin's scale should allow a decade or more of transaction
-history to be verified in several seconds using a couple megabytes of data
-(TODO footnote an envelope calculation to justify this if you don't
-have code by publication)
+history to be verified in several seconds using a couple megabytes of data\footnote{Experiments
+with the compact chains described in this paper suggest that a 500000
+block chain may have a compact length of around 300 blocks (though with
+high variance across multiple experiments), each containing sinking
+signatures which average ten 96-byte elliptic curve points, merkle
+commitments to previous blocks consisting of forty 40-byte (blockhash,
+difficulty) pairs, and some extra block header data, totalling less
+than 3Kb of data. Across 300 blocks this is 900Kb total of compact
+chain data. Verification time is dominated by pairing computations,
+of which there are on average ten per block, or 3000. On the author's
+laptop using Ben Lynn's \texttt{libpbc} library, these can be done
+in under 20 seconds using a single core. By more careful choice of
+elliptic curve, and focused optimization work, this number can surely
+be improved.}.
 
 On the other hand, Bitcoin's current state of 40 million unspent outputs
 would grow to 100Gb and a few days of verification on a modern CPU, thanks
@@ -154,7 +198,6 @@ fixed value independent of the length of the chain, and serves to make
 forgery by irrational lucky actors prohibitively expensive.
 \end{enumerate}
 
-
 \section{Preliminaries}
 
 \subsection{Cryptographic Primitives}
@@ -207,20 +250,21 @@ equals $vH + rG$.
 
 If the discrete logarithm problem in  $\mathcal{G}$ is hard, then this
 is a computationally binding, perfectly hiding homomorphic commitment
-scheme. TODO cite pedersen
+scheme\cite{pedersen2001}.
 \end{expl}
 
 \begin{defn} Given a homomorphic encryption $C$, we define a
 \emph{rangeproof} on $C$ as a cryptographic proof that the committed
 value of $C$ lies in some given range $[a, b]$. We further require
-that rangeproofs are zero-knowledge proofs of knowledge (zkPoK) (TODO cite) of
+that rangeproofs are zero-knowledge proofs of knowledge (zkPoK) of
 the opening information of the commitments.
 \end{defn}
 Unless otherwise stated, rangeproofs will commit to the range
 $[0,2^n]$ where $n$ is small enough that no practical amount
 of commitments can be summed to produce an overflow.
 
-TODO cite greg's rangeproofs for pedersen commitments
+We may use, for example, the rangeproofs described in \cite{maxwell2015}
+for Pedersen commitments, which satisfy these criteria.
 
 \subsubsection{Sinking Signatures}
 
@@ -472,7 +516,7 @@ property of the homomorphic commitment scheme.
 
 Mimblewimble consists of a \emph{blockchain}, which is a weighted-vertex
 directed rooted tree of \emph{blocks} (defined below) for which the
-highest-weighted path is termed the \emph{consensus history}. [TODO cite]
+highest-weighted path is termed the \emph{consensus history}.
 
 \begin{defn} We define a \emph{Mimblewimble block} as the following data:
 \begin{itemize}
@@ -568,7 +612,7 @@ completing the proof.
 
 \subsection{Consensus\label{sec:consensus}}
 
-Mimblewimble uses a hashcash [TODO cite] style blockchain in which every
+Mimblewimble uses a hashcash\cite{back2002} style blockchain in which every
 block in a blockchain is labelled by a weight called its \emph{difficulty}.
 A blockchain is valid if every block of difficulty $D$ has a header which
 hashes into a range of size $1/D$ of the total space of hashes. We define
@@ -667,6 +711,7 @@ full chain but not the compact chain, will not appear in the compact chain
 of any extension of the full chain (i.e. once a block is dropped it can be
 forgotten).\label{cc_unique}\end{thrm}
 \begin{proof}
+TODO TODO
 \end{proof}
 
 \subsubsection{Proven and Expected Work\label{proven_expected}}
@@ -717,9 +762,6 @@ has been done to produce the chain they see, that it was not an accident,
 and that if it is a forgery it was a very expensive one that cannot be
 reliably repeated.
 
-TODO this is a pretty serious deviation from the bitcoin trust model, needs
-to be summarized in a new section 1.1 "trust model"
-
 \subsubsection{Sinking Signatures and Compact Chains\label{ss_cc}}
 
 In this section, we describe how sinking signatures interact with compact
@@ -727,8 +769,12 @@ chains, and in particular we find that it is possible to do a full
 Mimblewimble verification with only $\log^2$ of the total historic block
 data.
 
-\section{Conclusions}
-\subsection{Scaling Properties}
+\section{Extensions\label{sec:ext}}
+
+TODO
+\subsection{Multisignature Outputs}
+
+\subsection{Payment Channels}
 
 \nolinenumbers
 
