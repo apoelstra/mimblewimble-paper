@@ -1,0 +1,740 @@
+% Default course lecture note template by asp 
+\documentclass[letterpaper]{article}
+\usepackage[top=3cm, bottom=3cm, left=3.85cm, right=3.85cm]{geometry}
+\usepackage[onehalfspacing]{setspace}
+\usepackage{mathptmx}
+\usepackage{amsmath,amssymb,wasysym,amsthm}
+\usepackage{lineno,gitinfo}
+
+\newtheorem{lmma}{Lemma}
+\newtheorem{corl}{Corallary}
+\newtheorem{thrm}{Theorem}
+\newtheorem{defn}{Definition}
+\newtheorem{expl}{Example}
+
+\newcommand{\Setup}{\mathrm{Setup}}
+\newcommand{\Sign}{\mathrm{Sign}}
+\newcommand{\Verify}{\mathrm{Verify}}
+\newcommand{\Commit}{\mathrm{Commit}}
+\newcommand{\Open}{\mathrm{Open}}
+\newcommand{\sk}{\mathrm{sk}}
+\newcommand{\pk}{\mathrm{pk}}
+\newcommand{\e}{\hat{e}}
+\newcommand{\hash}{\mathcal{H}_2}
+\newcommand{\truth}{\{\mathrm{true}, \mathrm{false}\}}
+\newcommand{\randgets}{\xleftarrow{\$}}
+
+\title{Mimblewimble}
+\author{Andrew Poelstra\footnote{\texttt{grindelwald@wpsoftware.net}}}
+\date{\gitAuthorDate{} (commit \texttt{\gitAbbrevHash)}}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract} 
+\textbf{This is badly incomplete and maybe some proofs are wrong. If you have
+encountered this paper floating around the Internet, please disregard it.
+Sorry to be a tease. Full version forthcoming.}
+
+At about 04:30 UTC on the morning of August 2nd, 2016, an anonymous person
+using the name Tom Elvis Jedusor signed onto a Bitcoin research IRC channel,
+dropped a document hosted on a Tor hidden service TODO CITE, then signed out. The
+document, titled Mimblewimble, described a blockchain with a radically
+different approach to transaction construction from Bitcoin, supporting
+noninteractive merging and cut-through of transactions, confidential
+transactions, and full verification of the current chainstate without
+requiring new users to verify the full history of any coins.
+
+Unfortunately, while the paper was detailed enough to comminicate its main
+idea, it contained no arguments for security, and even one mistake CITE CITE.
+The purpose of this paper is to make precise the original idea, and add
+further scaling improvements developed by the author.
+\end{abstract}
+
+\paragraph{License.} This work is released into the public domain.
+
+\modulolinenumbers[10]
+\linenumbers
+
+\section{Introduction}
+
+standard blurb about the history of bitcoin, its current size and verification
+burden, extensive engineering effort put forth to keep it manageable, still
+large (and growing linearly!), most ppl don't even do sig verification before
+30000 blocks ago or whatever, maybe a hat-tip to the blocksize arguments,
+point out current CT would've put us at like a Tb of data (TODO update for
+new CT optimizations)
+
+\subsection{Overview and Goals}
+
+Mimblewimble is a design for a cryptocurrency whose history can be
+compacted and quickly verified with trivial computing hardware even
+after many years of chain operation. As a secondary goal, it should
+support strong user privacy by means of confidential transactions
+and an obfuscated transaction graph.
+
+More precisely,
+\begin{itemize}
+\item All transactions should use confidential transactions (TODO CITE CT)
+to blind their output amounts.
+
+\item Transactions should be noninteractively aggregable (TODO CITE OWAS)
+such that parties not privy to the original transactions are unable to
+separate them. This can improve censorship resistance and privacy,
+though it is unclear how to design a safe peer-to-peer network capable
+of exploiting this ability.
+
+\item For a new participant, the amount of bandwidth and processing power
+needed to catch up with the system should be proportional to the \emph{current
+state} of the system, \emph{i.e.} the size of the UTXO set, rather than
+the total size of all historical transactions.
+
+As described in the next section, and more thoroughly in Section
+\ref{sec:consensus}, Mimblewimble has a scheme for compressing blockchain
+history to a size polylog in the original size, which in practice for a
+system with Bitcoin's scale should allow a decade or more of transaction
+history to be verified in several seconds using a couple megabytes of data
+(TODO footnote an envelope calculation to justify this if you don't
+have code by publication)
+
+On the other hand, Bitcoin's current state of 40 million unspent outputs
+would grow to 100Gb and a few days of verification on a modern CPU, thanks
+to Mimblewimble's use of confidential transitions. It is an open problem
+how to improve this. We observe that even without cryptographic improvements,
+it would go a long way to simple cap the UTXO set size as a function of
+blockheight and let the fee market take care of it.
+\end{itemize}
+
+\subsection{Trust Model}
+
+Like Bitcoin, Mimblewimble is a blockchain-based cryptocurrency intended
+to be instantiated in a decentralized manner in which users may join or
+leave the system at any time. Further, upon (re)joining the network, users
+should be able to determine the network state, at least up to some recent
+time, and verify that this state was obtained by a series of valid state
+transitions, without trusting the honesty of any third parties.
+
+However, there are two points of departure from Bitcoin's trust model:
+\begin{enumerate}
+\item Unlike Bitcoin, whose blockchain describes every transaction in its
+entirety, and therefore allows all users to agree on and verify the precise
+series of transactions that led to the current chainstate, Mimblewimble
+only allows users to verify the essential features:
+\begin{itemize}
+\item A transaction, once committed to the block, cannot be reversed
+without rewriting the block (or by the owner(s) of its outputs explicitly
+undoing it).
+\item The current state of all coins was obtained by zero net theft or
+inflation: there are exactly as many coins in circulation as there should
+be, and there for each unspent output there exists a path of transactions
+leading to it, all of which are committed in the chain and authorized.
+
+Note that there may be other paths which have also been committed in the
+chain, during which some transactions may have been invalid or unauthorized
+or inflationary, but since a legitimate path exists, all these things must
+have netted out to zero.
+\end{itemize}
+
+\item As detailed in Section \ref{proven_expected}, verifiers may see
+multiple blockchains; they compute the \emph{total work} $D$ of each
+chain and declare the one with the largest $D$ to be the valid one, as
+in Bitcoin.
+
+However, in Bitcoin, this value $D$ represents both the \emph{expected work}
+to produce such a blockchain as well as the \emph{proven work} of the chain,
+in the sense that any party who expends significantly less than $D$ work
+will be unable to produce such a chain except with negligible probability.
+
+Mimblewimble, on the other hand, separates these. The total work $D$ still
+represents the expected work to produce the blockchain, and therefore
+incentivizes rational actors to contribute to the most-work chain rather
+than rewriting it. The proven work, on the other hand, is capped at some
+fixed value independent of the length of the chain, and serves to make
+forgery by irrational lucky actors prohibitively expensive.
+\end{enumerate}
+
+
+\section{Preliminaries}
+
+\subsection{Cryptographic Primitives}
+
+\paragraph{Groups.} Throughout, $\mathcal{G}_1$, $\mathcal{G}_2$ will denote
+elliptic curve groups adorned with an efficiently computable bilinear pairing
+$\e:\mathcal{G}_1\times\mathcal{G}_2\to\mathcal{G}_T$, with $\mathcal{G}_T$
+equal to the multiplicative group of $\mathbb{F}_{q^k}$ for some prime $q$,
+small positive integer $k$. We further require both $\mathcal{G}_1$ and
+$\mathbb{G}_2$ to have prime order $r$. Let $G$, $H$ be fixed generators of
+$\mathcal{G}_1$ whose discrete logarithms relative to each other are unknown
+(\emph{i.e.} they are nothing-up-my-sleeve (NUMS) points; $\mathcal{G}_2$
+does not need any canonical generators. We will make computational hardness
+assumptions about these groups as needed. We write $\mathcal{Z}_r$
+for the integers modulo $r$, and write $+$ for the group operation in all
+groups.
+
+All cryptographic schemes will have an implicit \textrm{GenParams}$(1^\lambda)$
+phase which generates $r$, $\mathcal{G}_1$, $\mathcal{G}_2$, $\mathcal{G}_T$,
+$G$ and $H$ uniformly randomly given a security parameter $\lambda$.
+
+\subsubsection{Standard Primitives}
+
+\begin{defn} A \emph{commitment scheme} is a pair of algorithms
+$\Commit(v, r)\to\mathcal{G}$, $\Open(v, r, C)\to\truth$ such that
+$\Open(v, r, \Commit(v, r))$ accepts for all $(v, r)$ in the domain
+of $\Commit$. It must satisfy the following security properties.
+\begin{itemize}
+\item \emph{Binding.} The scheme is \emph{binding} if for all $(v, r)$ in the
+domain of $\Commit$, there is no $(v',r')\neq(v,r)$ such that
+$\Open(v', r', \Commit(v, r))$ accepts.
+It is \emph{computationally binding} if no PPT algorithm can produce such a
+$(v', r')$ with nonneglible probability.
+\item \emph{Hiding.} The scheme is \emph{(perfectly, computationally) hiding}
+if the distribution of $\mathrm{Commit}(v, r)$ for uniformly random $r$ is
+(equal, computationally indistinguishable) for different values of $v$.
+\end{itemize}
+\end{defn}
+\begin{defn} We define a \emph{homomorphic commitment scheme} as one
+for which there is a group operations on commitments and $\Commit$ is
+homomorphic in its value parameter. That is, one where commitments to
+$v$, $v'$ can be added to obtain a commitment to $v+v'$ having the
+same security properties.
+\end{defn}
+
+\begin{expl} Define a \emph{Pedersen commitment} as the following scheme:
+$\Commit:\mathbb{Z}_r^2\to\mathcal{G}$ maps $(v, r)$ to $vH + rG$, and
+$\Open:\mathbb{Z}_r^2\times\mathcal{G}\to\truth$ checks that $(v, r)$
+equals $vH + rG$.
+
+If the discrete logarithm problem in  $\mathcal{G}$ is hard, then this
+is a computationally binding, perfectly hiding homomorphic commitment
+scheme. TODO cite pedersen
+\end{expl}
+
+\begin{defn} Given a homomorphic encryption $C$, we define a
+\emph{rangeproof} on $C$ as a cryptographic proof that the committed
+value of $C$ lies in some given range $[a, b]$. We further require
+that rangeproofs are zero-knowledge proofs of knowledge (zkPoK) (TODO cite) of
+the opening information of the commitments.
+\end{defn}
+Unless otherwise stated, rangeproofs will commit to the range
+$[0,2^n]$ where $n$ is small enough that no practical amount
+of commitments can be summed to produce an overflow.
+
+TODO cite greg's rangeproofs for pedersen commitments
+
+\subsubsection{Sinking Signatures}
+
+This brings us to the first new primitive needed for Mimblewimble.
+
+\begin{defn} We define a \emph{sinking signature} as the following
+collection of algorithms:
+\begin{itemize}
+\item $\Setup(1^\lambda)$ outputs a keypair $(\sk, \pk)$;
+\item $\Sign(\sk, h)$ takes a secret key $\sk$ and nonnegative integer
+``height'' $h$ which is polynomial in $\lambda$, and outputs a signature $s$.
+\item $\Verify(\pk, h, s)$ takes a public key $\pk$ and signature $s$ and
+outputs from $\truth$.
+\end{itemize}
+satisfying the following security and correctness properties:
+\begin{itemize}
+\item Correctness. For all polynomial $h$, $(\sk, \pk)\gets\Setup(1^\lambda)$,
+$s\gets\Sign(\sk, h)$, we have that $\Verify(\pk, h, s)$ accepts.
+\item Security. Let $(\cdot, \pk)\gets\Setup(1^\lambda)$. Then given $\pk$ and
+an oracle $H$ which given $h$ returns $\Sign(\sk, h)$, no PPT algorithm
+$\mathcal{A}$ can produce a pair $(s, h')$ with $h'>h$ for all $h$ given to
+the oracle, and $\Verify(\pk, h', s)$ accepts.
+(Except with negligible probability.)
+\end{itemize}\label{sinkingsig}
+\end{defn}
+
+The name ``sinking signature'' is motivated by the fact that given a signature
+$s$ on height $h)$, it may be possible for a forger to create a signature $s'$
+on height $h'$ with the same public key and $h' \leq h$, thus ``decreasing the
+height'' of the signature. We will use this feature later to aid scalability for
+a Mimblewimble chain.
+
+\begin{defn} We say a sinking signature is \emph{aggregatable} or \emph{summable}
+if given a a linear combination $\pk$ of $\pk_i$ values computed from $\Setup(1^\lambda)$,
+the same linear combination of $s_i\gets\Sign(\sk_i, h)$ (for fixed $h$) it
+is possible to compute a signature $s$ such that $\Verify(\pk, h, s)$ accepts.
+
+For a summable sinking signature, we generalize the above security game to allow
+the adversary $\mathcal{A}$ to play polynomially many times in parallel and win
+with an arbitrary linear combination of its received public keys. (It must also
+provide the coefficients of the linear combination.)
+\label{homodef}
+\end{defn}
+
+We propose the following summable sinking signature (Poelstra, Kulkarni).
+Let $\hash$ be a random oracle hash with values in $\mathcal{G}_2$.
+\begin{itemize}
+\item $\Setup(1^\lambda)$ chooses a uniformly random $\sk\gets\mathbb{Z}_r$
+and sets $\pk = \sk\cdot G$.
+\item $\Sign(\sk, x)$ first computes the sequence $\{x_0,\ldots,x_n\}$
+where $x_0 = x$ and $x_{i+1}$ is obtained by subtracting from $x_i$ the
+largest power of 2 that divides it (\emph{i.e.}, by clearing its least
+significant 1 bit). We observe that $x_n = 0$ and that $n$ is one plus
+the number of one bits in $x$ and is therefore $O(\log_2x)$.
+
+Next, it sets $s = \{\sk\cdot \hash(x_i\}_{i=0}^n$.
+\item $\Verify(\pk, x, p)$ computes $P$ as the sum of all elements of $p$,
+computes $H = \sum_{i=0}^n \hash(x_i)$, and checks that $e(G, P) = e(\pk, H)$.
+\end{itemize}
+Observe that the verification step uses only the sum $P$ of the elements
+of the proof. However, the extra data will be useful later, so we state
+it here so we can prove the scheme is secure with it.
+
+Correctness and summability of the scheme are immediate.
+
+\begin{thrm} This is a secure summable sinking signature, in the following
+sense: if an adversary $\mathcal{A}$ exists which wins the game described
+in Definition \ref{homodef}, a simulator $\mathcal{B}$ exists which can solve
+the computational co-Diffie-Hellman (co-CDH) problem for $(\mathcal{G}_2,
+\mathcal{G}_1)$, given oracle access to $\mathcal{A}$.\end{thrm}
+\begin{proof} $\mathcal{B}$ answers random oracle queries to $H$ and
+works in the following way. (Recall that the game in Definition
+\ref{homodef} is the game from Definition \ref{sinkingsig} played
+in parallel.)
+
+We suppose without loss that before making signature queries on any height $x$,
+the adversary first all random oracle queries needed to verify such a signature;
+similarly before producing a forgery on height $x^*$ it makes the required queries.
+We then suppose that in total it requests at most $q_p$ public keys and makes
+at most $q_h$ random oracle queries.
+
+\begin{enumerate}
+\item $\mathcal{B}$ receives a co-CDH challenge $(G, P, Q)$ from its challenger,
+where $G, P\in\mathcal{G}_1$, $Q\in\mathcal{G}_2$, and the goal is to produce
+$R\in\mathcal{G}_2$ such that $\e(P, Q) = \e(G, R)$.
+
+\item $\mathcal{A}$ responds to the $i$th public key request by generating
+a uniformly random keypair $(x_i, P_i)$ and replies with $P_i + P$.
+
+\item $\mathcal{A}$ responds to the $j$th random oracle query by generating
+a uniformly random keypair $(y_j, H_j)$ except that $H_{j^*} = Q$ for
+$j^*\randgets\{1,\ldots,q_h\}$, and replying with $H_i$.
+
+\item $\mathcal{A}$ responds to the $k$th signature query on height $h^k$
+and pubkey $P^k$ as follows: it computes the sequence $\{h^k_n\}$ and checks
+if any of the $H(h^k_n)$ values is $Q$; if so, it aborts.
+
+Otherwise, for each $i\{0,\ldots,n\}$ it knows a $z_i$ such that $H(h^k_i) = z_iG$
+and produces $s = \{ z_iP \}_i$.
+
+\item Finally, $\mathcal{B}$ wins by producing a forgery consisting of coefficients
+$\{ c_i\}_{i=1}^m$ with not all $c_i$ zero, a pubkey $P^* = \sum_{i=1}^m c_i(P_i + P)$,
+a height $h^*$ greater than any $h^*$ thus queried on, and a signature $s^* = \{S_i\}$
+such that $\sum_{i=0}^{n^*}e(G, S_i) = \sum_{i=0}^{n^*} e(P^*, H(h^*_i))$.
+
+\item If some $H(h_{i^*}^*) = Q$, then for the above sum to hold, writing $x^*$
+for $P^* = x^*G$, we must have
+\begin{align*}
+\sum_{i=0}^{n^*} S_i
+    &= \sum_{i=0}^{n^*} y^*_iP^* &\text{for $y^*_i$ such that $H(h^*_i) = y^*_iG$}	\\
+    &= \sum_{i=0}^{n^*} \sum_{j=1}^m [c_jx_jy^*_iG + c_jy^*_iP]	\\
+    &= \sum_{i=0}^{n^*} \sum_{j=1}^m [c_jx_jH(h^*_i) + c_jy^*_iP] 	\\
+    &= \sum_{j=1}^m c_j R + \sum_{\substack{i=0\\i\neq i^*}}^{n^*} \sum_{j=1}^m [c_jx_jH(h^*_i) + c_jy^*_iP]
+\end{align*}
+where $R$ is the solution to $\mathcal{B}$'s CDH challenge, and every other
+term is computable by $\mathcal{B}$.
+\end{enumerate}
+TODO show we don't abort (except with probability bounded away from 1), this win condition occurs
+with nonneglible probability, also let the challenger add its own pubkeys
+(as long as it declares them) (in MW it hasta declare them because any
+"excess" it adds is the sum of a subset of outputs)
+\end{proof}
+
+\subsection{Mimblewimble Primitives}
+
+\begin{defn}A \emph{Mimblewimble transaction} is the following data:
+\begin{itemize}
+\item A list of homomorphic commitments termed the \emph{inputs},
+with attached rangeproofs. Alternately, inputs may be given as
+explicit amounts, in which case they are treated as homomorphic
+commitments to the given amount with zero blinding factor.
+\item A list of homomorphic commitments termed the \emph{outputs},
+with attached rangeproofs.
+\item A blockheight $x$.
+\item An \emph{excess} commitment to zero, with a summable sinking
+signature on blockheight $x$ with this as pubkey.
+\end{itemize}
+We make the further restriction on transactions that every input
+within a transaction be unique.
+\end{defn}
+
+\begin{defn} We define the \emph{sum} of a transaction to be its
+outputs minus its inputs, plus its excess. If the sum is zero\footnote{By
+zero we mean the homomorphic commitment which commits to zero with
+zero blinding factor.}, we say the transaction is \emph{valid}.
+\end{defn}
+
+\begin{defn} We define the \emph{canonical form} of a transaction
+$T$ as the transaction equal to $T$ except if any input is equal
+to an output, both are removed.
+
+Notice that the canonical form of any transaction has equal sum
+to the original transaction; in particular a transaction is valid
+if and only if its canonical form is valid.\end{defn}
+
+We observe that all valid transactions are noninflationary; the
+total output value must be equal to the total input value.
+
+\begin{defn} Given a finite set of transactions $\{T_i\}$ with
+pairwise disjoint input sets, we define the \emph{cut-through}
+of $\{T_i\}$ as the canonical form of the union of all $T_i$'s.
+\end{defn}
+
+Next, we define some terms that will allow us to treat Mimblewimble
+transactions as mechanisms for the transfer of value within a blockchain.
+\begin{defn} (Ownership.) We say that a party $S$ \emph{owns} a set
+of transaction outputs if she knows the opening of the sum of the
+outputs.\end{defn}
+
+\begin{defn} (Sending $n$ coins.) To send $n$ coins from $S$
+to $R$, $S$ produces a transaction: chooses inputs, creates uniformly
+random change output(s) and a uniformly random excess, whose sum is
+a commitment to $n$. $S$ sends this to $R$ along with the opening
+information of the sum.
+\label{send}
+\end{defn}
+
+%\begin{lmma}It is impossible for an algorithm $R$ to produce a valid
+%transaction $T$ for which it owns outputs whose committed value totals
+%$n$, unless it knows the opening of the sum of a transaction $T'$, where
+%$T'$ is the $T$ without the outputs that $R$ knows.
+%\end{lmma}
+%\begin{proof}The opening of the sum of outputs is the negative of the
+%opening of $T'$.\end{proof}
+
+\begin{defn} (Receiving $n$ coins.) To receive $n$ coins, $R$ receives
+a transaction $T'$ which sums to a commitment of $m\geq n$ coins, along
+with opening information of this sum, and completes it to a valid
+transaction $T$ by the following process:
+\begin{enumerate}
+\item $R$ first produces uniformly random outputs whose total committed
+value is $n$, and adds these to the transaction.
+\item If $m = n$, $R$ negates the sum of this transaction and adds it
+to the excess of the transaction, so that the total sum is now zero.
+(It also computes a summable sinking signature for the amount added,
+and adds this to the original signature, so that the final excess has
+a valid signature on it.)
+
+Otherwise the transaction now has sum committing to $m - n$, so $R$ adds
+a uniformly random value to excess, updates the signature, and gives the
+opening information of the new sum to another recipient who can take the
+remaining value.
+\end{enumerate}
+\label{receive}
+\end{defn}
+When we define a blockchain and require transaction inputs to be outputs
+of earlier transactions, we will show that after this process, $R$ is
+the only party who owns any of the outputs that he added.
+
+\section{The Mimblewimble Payment System}
+
+\subsection{Fundamental Theorem}
+
+\begin{thrm} (Fundamental Theorem of Mimblewimble) Suppose we have
+a binding, hiding homomorphic commitment scheme. Then no algorithm
+$\mathcal{A}$ can win at the following game against a challenger
+$\mathcal{C}$ except with negligible probability:
+\begin{enumerate}
+\item (Setup.) $\mathcal{C}$ computes a finite list $L$ of uniformly
+random homomorphic commitments. $\mathcal{C}$ sends $L$ to $\mathcal{A}$.
+\item (Challenge.) At most polynomially many times, $\mathcal{A}$
+selects some (integer) linear combination $T_i$ of $L$ and requests the
+opening of this combination from $\mathcal{C}$. $\mathcal{C}$ obliges.
+\item (Forgery.) $\mathcal{A}$ then chooses a new linear
+combination $T$ which is not a linear combination of $\{T_i\}$ and reveals
+the opening information of $T$.
+\end{enumerate}
+\label{fundamental}
+\end{thrm}
+\begin{proof}
+Consider the lattice $\Lambda$ of formal linear combinations generated by $L$,
+that is, the set $\{ \sum_{A\in L} b_A A : b_A \in \mathbb{Z}\}$. Consider the
+quotient lattice $\Lambda/\Gamma$ where $\Gamma$ is the sublattice of
+$\Lambda$ generated by the queries $\{T_i\}$. We may consider every
+element of $\Lambda/\Gamma$ to be a homomorphic commitment by using
+some canonical representative. In particular, every element of
+$\Lambda/\Gamma$ is a homomorphic commitment which satisfies the same
+hiding/blinding properties that the original scheme did.
+
+Then the projection of every $\{T_i\}$ into $\Lambda/\Gamma$ is zero,
+and the projection of $T$ is nonzero. Therefore $\mathcal{A}$ has
+learned no information about the projection of $T$ from its queries;
+however, if $\mathcal{A}$ knows the opening of $T$ then it also knows
+the opening of the projection of $T$, contradicting the hiding
+property of the homomorphic commitment scheme.
+\end{proof}
+
+\subsection{The Blockchain\label{sec:bc}}
+
+Mimblewimble consists of a \emph{blockchain}, which is a weighted-vertex
+directed rooted tree of \emph{blocks} (defined below) for which the
+highest-weighted path is termed the \emph{consensus history}. [TODO cite]
+
+\begin{defn} We define a \emph{Mimblewimble block} as the following data:
+\begin{itemize}
+\item A canonical transaction, whose inputs are of one of the two forms:
+\begin{itemize}
+\item A reference to an output of the transaction in an earlier block; or
+\item An explicit (\emph{i.e.} with zero blinding factor) input restricted
+by rules above those given in this paper\footnote{A typical rule would be
+that each block can have only a single \emph{coinbase input} of fixed
+value.}.
+\end{itemize}
+\item A \emph{block header}, which has a binding commitment to earlier
+blocks in the chain, termed \emph{backlinks}; the transaction included in
+this block; the cut-through of this transaction and every previous block's
+transactions.
+\end{itemize}
+If the block's transaction is valid, we say the block is \emph{valid}.
+\end{defn}
+
+In Section \ref{sec:consensus}, we will describe how blocks are weighted,
+and which previous blocks specifically should be linked to. For now we
+will 
+
+\begin{defn} We define the \emph{consensus chain state} of a Mimblewimble
+blockchain as the cut-through of all transactions on the consensus history.
+
+If the consensus chain state is valid, we call the blockchain \emph{valid}.
+\end{defn}
+Note that for a blockchain to be valid, it is not required that all blocks
+be valid, only that the entire chain sum to a valid transaction.
+
+Next, we prove that Mimblewimble is a sound payment system, in the sense
+of the following two theorems.
+\begin{thrm} (No inflation.) The total value committed by the outputs of
+the consensus chainstate of a valid blockchain is equal to the value of
+the explicit inputs in each block.
+\end{thrm}
+\begin{proof} By hypothesis the consensus chain state, which is the canonical
+form of the cut-through of all transactions, is valid. Since every non-explicit
+input of every block is the output of a previous transaction, it does not appear
+in this canonical form. Therefore the only inputs of the chain state are the
+explicit ones.
+\end{proof}
+
+\begin{lmma} (Unique ownership.) Suppose that all outputs of a transaction
+were created by receiving coins as in Definition \ref{receive}, and that all
+blinding factors are kept secret with the specific exception of sending
+coins as in Definition \ref{send}. Then for every subset of outputs in which
+not all have not been sent, the only owner of that subset is the person
+who created all its outputs. (In particular, if the subset contains outputs
+created by different parties, then that subset has no owner.)
+\label{unique}
+\end{lmma}
+\begin{proof} Let $O$ be an output in the subset which has not been sent.
+Then the only combination of outputs containing $O$ whose commitment included
+$O$ that may have been revealed also included some uniformly random excess
+$E$ which was chosen when $O$ was created.
+
+Further no other sum containing $E$ was ever revealed, so that any combination
+including $O$ but not $E$ is \emph{not} a linear combination of combinations
+whose opening information has been revealed. The subset in question does not
+contain $E$, since $E$ is an excess not an output. Therefore by Theorem
+\ref{fundamental} nobody knows the opening information of the subset except
+the person who created $O$.
+\end{proof}
+
+\begin{thrm} (No theft.) Consider a valid blockchain. An output $x$
+created as in Definition \ref{receive} cannot be removed from the
+consensus chain state without replacing the block in which it appeared,
+\emph{i.e.}, forming a higher-weighted valid blockchain not containing
+this block, except by parties who (collectively) own a set $U$ of
+outputs containing $x$.
+\end{thrm}
+\begin{proof} Suppose otherwise; then there exists a higher-weighted
+chain containing the block $B$ in which $x$ appeared, but for which
+the consensus chain state does not contain $x$.
+
+Consider the transaction $T$ which is the canonical form of the
+cut-through of the first block after $B$ to the tip of the chain.
+(Note that $T$ may not be valid; we know only that the full chain
+states are valid.)
+
+Then the outputs of $T$ are a subset of the outputs of the new
+chain state; in particular they contain rangeproofs which are
+proofs of knowledge of the openings of the outputs. Similarly, the
+excess value is also known. We conclude that the parties who created
+these blocks (and therefore $T$) know the openings of all outputs and
+sum of the excess value, and therefore own the set of all inputs of $T$.
+
+However, the inputs of $T$ form a set of outputs containing $x$,
+completing the proof.
+\end{proof}
+
+\subsection{Consensus\label{sec:consensus}}
+
+Mimblewimble uses a hashcash [TODO cite] style blockchain in which every
+block in a blockchain is labelled by a weight called its \emph{difficulty}.
+A blockchain is valid if every block of difficulty $D$ has a header which
+hashes into a range of size $1/D$ of the total space of hashes. We define
+a directed edge from block $A$ to $B$ iff $A$ commits to $B$ in its header,
+and require each block commit to its unique \emph{parent}.
+
+We can then refine our definition in Section \ref{sec:bc} of \emph{consensus
+history} as the highest-weighted path terminating at the root. This is the
+same as Bitcoin's design.
+
+\subsubsection{Block Headers}
+
+However, in we also define a \emph{second} graph structure on blocks as
+vertices, called the \emph{compact blockchain}. We define the compact
+blockchain iteratively as follows.
+\begin{enumerate}
+\item The genesis block is in the compact blockchain.
+\item The first block after the genesis is added to the compact blockchain,
+and is assigned \emph{effective difficulty} equal to its difficulty.
+\item Each block added to the tip of the compact blockchain may cause
+blocks to be removed from the compact chain as follows: 
+\begin{enumerate}
+\item First, its effective difficulty is calculated as follows. Consider
+the ``maximum possible difficulty'' $M$ of the block, which is the size
+of the hash space divided by the hash of the block. (This may be larger
+than the actual difficulty.)
+
+The effective difficulty is determined by starting with the block's
+difficulty, then adding the effective difficulties of as many
+consecutive blocks as possible, starting from the tip, so that the total
+is less than or equal to $M$.
+
+\item All blocks whose effective difficulty was used in the above calculation,
+except the new block itself, are dropped from the compact chain.
+\end{enumerate}
+\end{enumerate}
+The compact blockchain is encoded in the real blockchain by having every
+block commit to a merkle sum tree (with effective difficulty the quantity
+being summed) of all blocks in the current compact chain. 
+
+We next prove several theorems to give an intuition of the properties
+of the compact blockchain.
+
+\begin{lmma} The expected work required to produce a block with effective
+difficulty $D$ is equivalent to computing $D$ hashes; similarly to
+produce several blocks with total effective difficulty $D'$ one must
+do expected work of computing $D'$ hashes.\label{pow}\end{lmma}
+\begin{proof}This is immediate in the random oracle model.\end{proof}
+
+\begin{thrm} The expected amount of work to replace a block $B$ in the
+compact chain (\emph{i.e.} produce a blockchain of greater or equal
+total difficulty whose compact chain does not contain $B$) is greater
+than or equal to the work needed to replace $B$, its parent in the
+non-compact chain, its parent, and so on, up to but not including $B$'s
+parent in the compact chain.\end{thrm}
+\begin{proof} This follows immediately from Lemma \ref{pow} and the
+fact that the effective difficulty of every block is defined to be
+greater than or equal to the sum of the difficulty of the skipped
+blocks.
+\end{proof}
+
+\begin{corl} The expected work required to produce a compact blockchain
+is at least as large as the expected work required to produce a full
+chain containing the same blocks.\end{corl}
+
+\begin{thrm} Assuming constant difficulty, given a blockchain of length
+$N$, the expected length of the compact chain will be $O(\log N)$.
+\end{thrm}
+\begin{proof} The compact chain has been defined such that the proof in
+CITE, APPENDIX A still holds. We summarize it here:
+\begin{enumerate}
+\item First, consider starting from the tip and scanning backward until
+we find a block that can skip all remaining blocks back to the genesis.
+By construction this block will be in the compact chain. The probability
+that such a block exists within the first $x$ blocks we check is
+\[ 1 - \prod_{i=1}^x \frac{N-i}{N-i+1} = 1 - \frac{N-x}{N} = \frac{x}N \]
+and the expectation of this over all $1\leq x \leq N$ is $\frac{N+1}2$,
+\emph{i.e.} we expect the chain length to be halved by this one skip.
+\item Inductively, we can scan back from the tip until we find a block
+that skips back to the block in the previous step. This halves (in
+expectation) the remaining chain, and so on. 
+\end{enumerate}
+The number of times we repeat this process until we have no more blocks
+to skip is the length of the compact chain, since each step added one
+more block to the compact chain, and since each step halved the number
+of remaining blocks, we see that there are only logarithmically many
+steps.
+\end{proof}
+We observe that small variations in difficulty do not affect the character
+of this proof, and therefore the constant-difficulty case can be considered
+a good approximation to the real-world situation.
+
+\begin{thrm} for a given blockchain, there is exactly one compact chain, and it
+can be verified with log-much work. further, any block which appears in the
+full chain but not the compact chain, will not appear in the compact chain
+of any extension of the full chain (i.e. once a block is dropped it can be
+forgotten).\label{cc_unique}\end{thrm}
+\begin{proof}
+\end{proof}
+
+\subsubsection{Proven and Expected Work\label{proven_expected}}
+
+However, while the expected work can be computed to be the same, the
+the compact chain \textbf{does not}, in general, prove as much work as
+the full chain. For example, consider a blockchain of total difficulty
+$D$ across $n$ blocks, whose compact chain has $\log n$ blocks.
+
+Suppose an attacker attempts to produce this chain in $\epsilon D$ work,
+where $0<\epsilon<1$. Then this requires, on average, that each individual
+block be produced in $\epsilon$ the expected time. Each block's production
+time is an independent variable, so the Chernoff bound lets us approximate
+this more precisely: if $\epsilon < 1$ then the probability decays
+exponentially with the number of blocks in the chain.
+
+For the full chain this means probability $O(\exp((1 - \epsilon)n))$; for
+the compact chain $O(\exp((1 - \epsilon)\log n))$ or $O(n^{1-\epsilon})$.
+In fact, the extreme case is even worse: a compact chain may consist of
+only a single block which has difficulty $D$, in which case the probability
+is simply $O(\exp(1 - \epsilon))$. This means an attacker willing to expend
+some fixed percentage of the total chain work has the same probability of
+successfully rewriting the chain regardless of the length of the chain.
+
+To be conservative, we conclude that \textbf{compact chains, as described
+in this paper, prove no work}\footnote{This says nothing about the compact
+SPV proofs described in, e.g. CITE PROOFS OF POW, which put lower bounds
+on the length of compact proofs in order to upper-bound the probability
+a less-than-expected-work attacker can succeed. We cannot take this approach
+because we are using these proofs in consensus code and therefore need
+Theorem \ref{cc_unique}.}.
+
+So what good are they? In Mimblewimble, we expect verifiers of a chain to
+demand all blocks from the most recent two months, say, and a compact chain
+from there to the start (in Section \ref{ss_cc} we will see how full verification
+can proceed using only a compact chain). The resulting composite will:
+\begin{itemize}
+\item be forgeable with expected work equal to the entire chain's work; but
+\item only \emph{prove} the most recent two months of work
+\end{itemize}
+Unlike Bitcoin, where the expected work to forge a blockchain is the same
+(asymptotically) to its proven work, in Mimblewimble these quantities are
+different. The expected work affects incentives: rational actors will choose
+to extend the most-work chain rather than attempting forgeries, just as in
+Bitcoin; on the other hand, the proven work affects verifiers' certainty
+about the state of the world: they know at least two months worth of work
+has been done to produce the chain they see, that it was not an accident,
+and that if it is a forgery it was a very expensive one that cannot be
+reliably repeated.
+
+TODO this is a pretty serious deviation from the bitcoin trust model, needs
+to be summarized in a new section 1.1 "trust model"
+
+\subsubsection{Sinking Signatures and Compact Chains\label{ss_cc}}
+
+In this section, we describe how sinking signatures interact with compact
+chains, and in particular we find that it is possible to do a full
+Mimblewimble verification with only $\log^2$ of the total historic block
+data.
+
+\section{Conclusions}
+\subsection{Scaling Properties}
+
+\nolinenumbers
+
+\clearpage
+\bibliographystyle{amsalpha}
+\bibliography{asp}
+
+\end{document}
+
