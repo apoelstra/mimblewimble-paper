@@ -34,9 +34,9 @@
 \maketitle
 
 \begin{abstract} 
-\textbf{This is badly incomplete and maybe some proofs are wrong. If you have
-encountered this paper floating around the Internet, please disregard it.
-Sorry to be a tease. Full version forthcoming.}
+\textbf{This is still incomplete. If you have encountered this paper floating
+around the Internet, please disregard it. Sorry to be a tease. Full version
+forthcoming.}
 
 At about 04:30 UTC on the morning of August 2nd, 2016, an anonymous person
 using the name Tom Elvis Jedusor signed onto a Bitcoin research IRC channel,
@@ -544,17 +544,18 @@ that each block can have only a single \emph{coinbase input} of fixed
 value.}.
 \end{itemize}
 \item A \emph{block header}, which has a binding commitment to earlier
-blocks in the chain, termed \emph{backlinks}; the transaction included in
-this block; the cut-through of this transaction and every previous block's
-transactions.
+blocks in the chain, termed \emph{backlinks}; a commitment to the current
+UTXO set after this block's transaction has teken effect; and the transaction
+included in this block.
 \end{itemize}
 If the block's transaction is valid, we say the block is \emph{valid}.
 \label{defn:blockvalid}
 \end{defn}
 
 In Section \ref{sec:consensus}, we will describe how blocks are weighted,
-and which previous blocks specifically should be linked to. For now we
-will 
+and which previous blocks specifically should be linked to. For now we may
+use Definition \ref{defn:blockvalid} as our definition of validity, though
+note that there will be additional requirements on the commitments.
 
 \begin{defn} We define the \emph{consensus chain state} of a Mimblewimble
 blockchain as the cut-through of all transactions on the consensus history.
@@ -578,9 +579,9 @@ explicit ones.
 \end{proof}
 
 \begin{lmma} (Unique ownership.) Suppose that all outputs of a transaction
-were created by receiving coins as in Definition \ref{receive}, and that all
-blinding factors are kept secret with the specific exception of sending
-coins as in Definition \ref{send}. Then for every subset of outputs in which
+were created by receiving coins as in Definition \ref{receive} or sending
+as in Definition \ref{send}, so that all blinding factors are kept secret.
+Then for every subset of outputs in which
 not all have not been sent, the only owner of that subset is the person
 who created all its outputs. (In particular, if the subset contains outputs
 created by different parties, then that subset has no owner.)
@@ -648,8 +649,8 @@ blockchain iteratively as follows.
 \item The genesis block is in the compact blockchain.
 \item The first block after the genesis is added to the compact blockchain,
 and is assigned \emph{effective difficulty} equal to its difficulty.
-\item Each block added to the tip of the compact blockchain may cause
-blocks to be removed from the compact chain as follows: 
+\item Each new block is added to the tip of the compact blockchain, and may
+cause blocks to be removed from the compact chain as follows: 
 \begin{enumerate}
 \item First, its effective difficulty is calculated as follows. Consider
 the ``maximum possible difficulty'' $M$ of the block, which is the size
@@ -901,11 +902,31 @@ signatures, each of them are logarithmic in size.\end{proof}
 
 \section{Extensions\label{sec:ext}}
 
-TODO
-\subsection{Multisignature Outputs}
+\paragraph{Multisignature Outputs.} We observe that CT rangeproofs can be
+produced interactively in the same ways that Schnorr signatures can to
+produce multisignature outputs. Similarly the sinking signatures can be
+trivially produced in a multiparty way. So support for multiparty signatures,
+while not addressed in the document, is simply a matter of wallet support
+and requires no further changes to the system.
 
-\subsection{Payment Channels}
-\subsection{Sidechains}
+\paragraph{Payment channels.} Bitcoin's script system supports off-chain
+\emph{payment channels}, which are used by the Lightning network\cite{poon+dryja2016}
+to support unlimited transaction capacity in constant blockchain space.
+A scaling-focused blockchain design such as Mimblewimble ought to support
+such a scheme.
+
+It is an open problem to produce payment channels that are as ergonomic
+and flexible as those in Bitcoin, but to show that this ought to be possible,
+here is an example of a primitive Mimblewimble payment channel. Suppose that
+a party $A$ wants to send a series of payments to party $B$ of maximum value
+$V$.
+\begin{enumerate}
+\item  TODO TODO
+\end{enumerate}
+
+\paragraph{Sidechain support.}
+
+\paragraph{Quantum resistance.}
 
 \nolinenumbers
 
