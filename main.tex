@@ -48,7 +48,7 @@ transactions, and full verification of the current chainstate without
 requiring new users to verify the full history of any coins.
 
 Unfortunately, while the paper was detailed enough to comminicate its main
-idea, it contained no arguments for security, and even one mistake CITE CITE.
+idea, it contained no arguments for security, and even one mistake\footnote{\url{https://www.reddit.com/r/Bitcoin/comments/4vub3y/mimblewimble_noninteractive_coinjoin_and_better/d61n7yd}}.
 The purpose of this paper is to make precise the original idea, and add
 further scaling improvements developed by the author.
 \end{abstract}
@@ -88,7 +88,19 @@ formidable.}.
 
 In this paper, we describe a research project to design a Bitcoin-like
 cryptocurrency, which achieves dramatically better scaling and privacy
-properties than Bitcoin, though at cost of sacrificing functionality.
+properties than Bitcoin. In particular, it allows removal of most historic
+blockchain data, including spent transaction outputs, rangeproofs and all,
+while still allowing users to fully verify the chain. Indeed, it is
+possible for the system to function even if no users retain the vast
+majority of historic blockchain data.
+
+Further, this currency allows transactions to be noninteractively
+combined (\emph{a la} Coinjoin\cite{maxwell2013}) and cut-through\cite{maxwell2013-2},
+eliminating much of the topological structure of the transaction graph.
+If this is done without publishing the original component transactions,
+the result is an enormous boon to user privacy, amplified by CT.
+
+Unfortunately, it accomplishes these goals at cost of sacrificing functionality.
 
 \subsection{Overview and Goals}
 
@@ -113,6 +125,7 @@ should be possible on the system.
 to blind their output amounts.
 
 \item Transactions should be noninteractively aggregable\cite{mouton2013},
+\emph{i.e.} support a noninteractive variant of CoinJoin\cite{maxwell2013,maxwell2013-2},
 such that parties not privy to the original transactions are unable to
 separate them. This can improve censorship resistance and privacy,
 though it is unclear how to design a safe peer-to-peer network capable
@@ -146,11 +159,11 @@ On the other hand, Bitcoin's current state of 40 million unspent outputs
 would grow to 100Gb and a few days of verification on a modern CPU, thanks
 to Mimblewimble's use of confidential transitions. It is an open problem
 how to improve this. We observe that even without cryptographic improvements,
-it would go a long way to simple cap the UTXO set size as a function of
-blockheight and let the fee market take care of it.
+it would go a long way to simply cap the UTXO set size as a function of
+blockheight and let the transaction-fee market take care of it.
 \end{itemize}
 
-\subsection{Trust Model}
+\subsection{Trust Model\label{sec:trust}}
 
 Like Bitcoin, Mimblewimble is a blockchain-based cryptocurrency intended
 to be instantiated in a decentralized manner in which users may join or
@@ -309,6 +322,7 @@ provide the coefficients of the linear combination.)
 \label{homodef}
 \end{defn}
 
+\begin{defn}\label{defn:pkss}
 We propose the following summable sinking signature (Poelstra, Kulkarni).
 Let $\hash$ be a random oracle hash with values in $\mathcal{G}_2$.
 \begin{itemize}
@@ -324,6 +338,7 @@ Next, it sets $s = \{\sk\cdot \hash(x_i\}_{i=0}^n$.
 \item $\Verify(\pk, x, p)$ computes $P$ as the sum of all elements of $p$,
 computes $H = \sum_{i=0}^n \hash(x_i)$, and checks that $e(G, P) = e(\pk, H)$.
 \end{itemize}
+\end{defn}
 Observe that the verification step uses only the sum $P$ of the elements
 of the proof. However, the extra data will be useful later, so we state
 it here so we can prove the scheme is secure with it.
@@ -403,7 +418,7 @@ with attached rangeproofs.
 signature on blockheight $x$ with this as pubkey.
 \end{itemize}
 We make the further restriction on transactions that every input
-within a transaction be unique.
+within a transaction be unique.\label{defn:tx}
 \end{defn}
 
 \begin{defn} We define the \emph{sum} of a transaction to be its
@@ -534,6 +549,7 @@ this block; the cut-through of this transaction and every previous block's
 transactions.
 \end{itemize}
 If the block's transaction is valid, we say the block is \emph{valid}.
+\label{defn:blockvalid}
 \end{defn}
 
 In Section \ref{sec:consensus}, we will describe how blocks are weighted,
@@ -623,7 +639,7 @@ We can then refine our definition in Section \ref{sec:bc} of \emph{consensus
 history} as the highest-weighted path terminating at the root. This is the
 same as Bitcoin's design.
 
-\subsubsection{Block Headers}
+\subsubsection{Block Headers\label{sec:bhead}}
 
 However, in we also define a \emph{second} graph structure on blocks as
 vertices, called the \emph{compact blockchain}. We define the compact
@@ -682,7 +698,8 @@ chain containing the same blocks.\end{corl}
 $N$, the expected length of the compact chain will be $O(\log N)$.
 \end{thrm}
 \begin{proof} The compact chain has been defined such that the proof in
-CITE, APPENDIX A still holds. We summarize it here:
+\cite[Appendix A]{back+corallo+dashjr+friedenbach+maxwell+miller+poelstra+timon+wuille2014}
+still holds. We summarize it here:
 \begin{enumerate}
 \item First, consider starting from the tip and scanning backward until
 we find a block that can skip all remaining blocks back to the genesis.
@@ -705,20 +722,41 @@ We observe that small variations in difficulty do not affect the character
 of this proof, and therefore the constant-difficulty case can be considered
 a good approximation to the real-world situation.
 
-\begin{thrm} for a given blockchain, there is exactly one compact chain, and it
-can be verified with log-much work. further, any block which appears in the
-full chain but not the compact chain, will not appear in the compact chain
-of any extension of the full chain (i.e. once a block is dropped it can be
-forgotten).\label{cc_unique}\end{thrm}
+\begin{thrm} Given a blockchain $B$ (for the purpose of this theorem, we
+considering $B$ to be only the most-work path), there is exactly one compact
+chain $C\subseteq B$. Further, verifiers can determine that that $C$ is the
+compact chain given only the blocks of $C$ and the opening of each
+block's commitment to the previous in the compact chain. Finally, no
+blocks in $B\setminus C$ will appear in the compact chain of any extension
+of $B$ (i.e. once a block is dropped it may be forgotten forever).
+\label{cc_unique}\end{thrm}
 \begin{proof}
-TODO TODO
+By construction, a compact chain $C$ exists which is a subset of $B$.
+Suppose that some other compact chain $C'\neq C$ of $B$ also exists.
+Let $C_\gets$ be the longest path from the tip contained in both
+$C'$ and $C$ (since the tip itself is in both $C'$ and $C$ by construction,
+this is nonempty), and let $\beta$ be the deepest block of $C_\gets$.
+
+Now, the block preceding $\beta$ must differ in $C$ and $C$; however,
+this is impossible since $\beta$ commits to an ordered Merkle sum tree of
+previous blocks in the compact chain, the ``preceding block'' must
+be the first one that $\beta$'s hash is not small enough to skip,
+and this is uniquely specified by the shape of the Merkle sum tree.
+We conclude that $C' = C$.
+
+Next, we argue that when $B$ is extended, no blocks of $B\setminus C$
+are added to the compact chain. But this is immediate, since by
+construction only new blocks are ever added to a compact chain.
 \end{proof}
 
 \subsubsection{Proven and Expected Work\label{proven_expected}}
 
 However, while the expected work can be computed to be the same, the
 the compact chain \textbf{does not}, in general, prove as much work as
-the full chain. For example, consider a blockchain of total difficulty
+the full chain. Here by ``proving an amount of work'' we mean that a
+prover who does less than this amount of work has negligible chance
+of producing the chain.
+For example, consider a blockchain of total difficulty
 $D$ across $n$ blocks, whose compact chain has $\log n$ blocks.
 
 Suppose an attacker attempts to produce this chain in $\epsilon D$ work,
@@ -728,8 +766,9 @@ time is an independent variable, so the Chernoff bound lets us approximate
 this more precisely: if $\epsilon < 1$ then the probability decays
 exponentially with the number of blocks in the chain.
 
-For the full chain this means probability $O(\exp((1 - \epsilon)n))$; for
-the compact chain $O(\exp((1 - \epsilon)\log n))$ or $O(n^{1-\epsilon})$.
+For the full chain this means probability $O(\exp[(1 - \epsilon)n])$ (exponential
+in $n$); for the compact chain $O(\exp[(1 - \epsilon)\log n])$ or
+$O(n^{1-\epsilon})$ (sublinear in $n$).
 In fact, the extreme case is even worse: a compact chain may consist of
 only a single block which has difficulty $D$, in which case the probability
 is simply $O(\exp(1 - \epsilon))$. This means an attacker willing to expend
@@ -737,8 +776,8 @@ some fixed percentage of the total chain work has the same probability of
 successfully rewriting the chain regardless of the length of the chain.
 
 To be conservative, we conclude that \textbf{compact chains, as described
-in this paper, prove no work}\footnote{This says nothing about the compact
-SPV proofs described in, e.g. CITE PROOFS OF POW, which put lower bounds
+in this paper, prove no work.}\footnote{This says nothing about the compact
+SPV proofs described in, e.g. \cite{kiayias+lamprou+stouka2016}, which put lower bounds
 on the length of compact proofs in order to upper-bound the probability
 a less-than-expected-work attacker can succeed. We cannot take this approach
 because we are using these proofs in consensus code and therefore need
@@ -766,8 +805,99 @@ reliably repeated.
 
 In this section, we describe how sinking signatures interact with compact
 chains, and in particular we find that it is possible to do a full
-Mimblewimble verification with only $\log^2$ of the total historic block
-data.
+Mimblewimble verification with only a compact chain. We introduce a
+notion of \emph{compact validity} of blocks which which is weaker than
+validity as described in in Definition \ref{defn:blockvalid}. Nonetheless,
+we preserve the trust model of Section \ref{sec:trust}.
+
+To do this, we modify the Merkle sum tree of previous blocks and their
+effective difficulty to sum not only difficulty, but (a) the excess of
+the blocks' transactions (Definition \ref{defn:tx}), (b) the sinking
+signatures on this excess. The excess values are summed in the obvious
+way, added as points, but the sinking signatures are more complicated.
+
+Rather than directly adding the signatures, we combine \emph{sets} of
+signatures from each child at every node of the Merkle tree, in the
+following fashion: for any blockheight $x$, let $\{x_n\}$ denote the
+decreasing sequence defined in Definition \ref{defn:pkss}. Then the
+signature set on a node is the union of the signature set of its
+children, except that whenever two heights $x < y$ appear in the set
+such that $\{x_n\}\subseteq\{y_n\}$, then both signatures are dropped
+and replaced by the signature on $\{x_n\}$ obtained by adding the
+corresponding components of the original signature.
+
+Therefore for a block at height $h$, the root of the Merkle sum tree
+committing to its ancestor blocks will have $O(\log h)$ sinking
+signatures, one for every power of 2 between 0 and $h$.
+
+With this structure in place, we are able to define validity of a block.
+\begin{defn} A block is \emph{compact valid} if
+\begin{itemize}
+\item It is valid in the sense of Definition \ref{defn:blockvalid}.
+\item Its Merkle sum tree commits to the deepest block allowable
+under the rules of Section \ref{sec:bhead}.
+\item This commitment is valid, in the sense that all the summing
+rules are obeyed.
+\item The above commitment will be a Merkle proof consisting of a
+path from the commitment to the Merkle root of the form $\{ c_i, c_i' \}$
+where $c_0$ is a direct commitment to the block; for all $i$ $c_i'$ is
+the sibling in the Merkle tree of $c_i$; and $c_{i+1}$ is a commitment
+to $\{c_i, c_i'\}$.
+
+We require the first $c_i'$ that is a \emph{right sibling} in the
+tree to have a valid set of sinking signatures on it. (If there is
+no such $c_i'$ then this block is skipping back to the genesis, so
+we instead require that all the signatures at the root of the tree
+are correct.)
+\end{itemize}\label{defn:compactvalid}
+\end{defn}
+
+\begin{defn} A block is \emph{fully valid} if it is compact valid and
+\begin{itemize}
+\item It commits to its immediate predecessor in the full chain (and
+the excess/signature committed to in the tree match the previous block).
+\item It has a valid commitment to the current UTXO set at the time
+of its creation.
+\end{itemize}
+\end{defn}
+(The latter condition allows the UTXO set to be verified using only
+the compact chain; it also prevents consensus attacks whereby users
+are given the same chain but differing UTXO sets that it commits to.
+The former condition ensures that compact blocks' contents don't
+differ from full blocks' contents, as long as full verifiers are
+watching.) (And if nobody is watching, it's a moot point anyway.)
+
+The conditions of Definition \ref{defn:compactvalid} are very technical.
+We can summarize them simply as follows: \emph{whenever a block at height
+$h$ skips back to $h'$, we sink the signatures of every intervening block
+to the lowest height greater than $h'$ possible, then aggregate all the
+signatures that wound up on the same height}. This mess of Merkle sum trees
+is only to show how this condition can be checked by a verifier given
+only polylogarithmically much data.
+
+We argue that this design preserves the trust model. In particular:
+\begin{thrm} No transaction can be removed without (doing as much work
+as) rewriting the block it appeared in.\end{thrm}
+\begin{proof} Every transaction has a sinking signature on the height
+$h$ of the block it appears in. When a block is removed from the compact
+chain, the above construction may cause this signature to only be
+verified after being sunk to some lower height $h'$.
+
+However, since $h'$ is always guaranteed to lay between the same two
+blocks in the compact chain that $h$ does, this signature cannot be
+removed except be rewriting the more recent of these two blocks.
+However, by construction, this has expected work greater than or
+equal to rewriting the block that the transaction originally appeared
+in.
+\end{proof}
+
+\begin{thrm} The commitments required by Definition \ref{defn:compactvalid}
+take $O(\log^3)$ space in the height of the full chain.
+\end{thrm}
+\begin{proof} The commitment contains logarithmically many nodes from
+the Merkle tree, each of which contain logarithmically many sinking
+signatures, each of them are logarithmic in size.\end{proof}
+
 
 \section{Extensions\label{sec:ext}}
 
@@ -775,6 +905,7 @@ TODO
 \subsection{Multisignature Outputs}
 
 \subsection{Payment Channels}
+\subsection{Sidechains}
 
 \nolinenumbers
 
