@@ -34,7 +34,8 @@
 \maketitle
 
 \begin{abstract} 
-\textbf{This is still incomplete. If you have encountered this paper floating
+\textbf{This is still incomplete, and the author list is not finalized.
+If you have encountered this paper floating
 around the Internet, please disregard it. Sorry to be a tease. Full version
 forthcoming.}
 
@@ -51,6 +52,12 @@ Unfortunately, while the paper was detailed enough to comminicate its main
 idea, it contained no arguments for security, and even one mistake\footnote{\url{https://www.reddit.com/r/Bitcoin/comments/4vub3y/mimblewimble_noninteractive_coinjoin_and_better/d61n7yd}}.
 The purpose of this paper is to make precise the original idea, and add
 further scaling improvements developed by the author.
+
+In particular, Mimblewimble shrinks the transaction history such that a
+chain with Bitcoin's history would need 15Gb of data to record every
+transaction. Jedusor left open a problem of how to reduce this data;
+we solve this, and combine it with existing research for compressing
+proof-of-work blockchains, to reduce this 15Gb to less than a megabyte.
 \end{abstract}
 
 \paragraph{License.} This work is released into the public domain.
@@ -133,8 +140,8 @@ of exploiting this ability.
 
 \item For a new participant, the amount of bandwidth and processing power
 needed to catch up with the system should be proportional to the \emph{current
-state} of the system, \emph{i.e.} the size of the UTXO set, rather than
-the total size of all historical transactions.
+state} of the system, \emph{i.e.} the size of the UTXO set plus rangeproofs,
+rather than the total size of all historical transactions.
 
 As described in the next section, and more thoroughly in Section
 \ref{sec:consensus}, Mimblewimble has a scheme for compressing blockchain
@@ -224,7 +231,7 @@ $\mathbb{G}_2$ to have prime order $r$. Let $G$, $H$ be fixed generators of
 $\mathcal{G}_1$ whose discrete logarithms relative to each other are unknown
 (\emph{i.e.} they are nothing-up-my-sleeve (NUMS) points; $\mathcal{G}_2$
 does not need any canonical generators. We will make computational hardness
-assumptions about these groups as needed. We write $\mathcal{Z}_r$
+assumptions about these groups as needed. We write $\mathbb{Z}_r$
 for the integers modulo $r$, and write $+$ for the group operation in all
 groups.
 
@@ -258,7 +265,7 @@ same security properties.
 
 \begin{expl} Define a \emph{Pedersen commitment} as the following scheme:
 $\Commit:\mathbb{Z}_r^2\to\mathcal{G}$ maps $(v, r)$ to $vH + rG$, and
-$\Open:\mathbb{Z}_r^2\times\mathcal{G}\to\truth$ checks that $(v, r)$
+$\Open:\mathbb{Z}_r^2\times\mathcal{G}\to\truth$ checks that $\Commit(v, r)$
 equals $vH + rG$.
 
 If the discrete logarithm problem in  $\mathcal{G}$ is hard, then this
@@ -305,7 +312,7 @@ the oracle, and $\Verify(\pk, h', s)$ accepts.
 \end{defn}
 
 The name ``sinking signature'' is motivated by the fact that given a signature
-$s$ on height $h)$, it may be possible for a forger to create a signature $s'$
+$s$ on height $h$, it may be possible for a forger to create a signature $s'$
 on height $h'$ with the same public key and $h' \leq h$, thus ``decreasing the
 height'' of the signature. We will use this feature later to aid scalability for
 a Mimblewimble chain.
@@ -366,21 +373,21 @@ at most $q_h$ random oracle queries.
 where $G, P\in\mathcal{G}_1$, $Q\in\mathcal{G}_2$, and the goal is to produce
 $R\in\mathcal{G}_2$ such that $\e(P, Q) = \e(G, R)$.
 
-\item $\mathcal{A}$ responds to the $i$th public key request by generating
+\item $\mathcal{B}$ responds to the $i$th public key request by generating
 a uniformly random keypair $(x_i, P_i)$ and replies with $P_i + P$.
 
-\item $\mathcal{A}$ responds to the $j$th random oracle query by generating
+\item $\mathcal{B}$ responds to the $j$th random oracle query by generating
 a uniformly random keypair $(y_j, H_j)$ except that $H_{j^*} = Q$ for
 $j^*\randgets\{1,\ldots,q_h\}$, and replying with $H_i$.
 
-\item $\mathcal{A}$ responds to the $k$th signature query on height $h^k$
+\item $\mathcal{B}$ responds to the $k$th signature query on height $h^k$
 and pubkey $P^k$ as follows: it computes the sequence $\{h^k_n\}$ and checks
 if any of the $H(h^k_n)$ values is $Q$; if so, it aborts.
 
 Otherwise, for each $i\{0,\ldots,n\}$ it knows a $z_i$ such that $H(h^k_i) = z_iG$
 and produces $s = \{ z_iP \}_i$.
 
-\item Finally, $\mathcal{B}$ wins by producing a forgery consisting of coefficients
+\item Finally, $\mathcal{A}$ wins by producing a forgery consisting of coefficients
 $\{ c_i\}_{i=1}^m$ with not all $c_i$ zero, a pubkey $P^* = \sum_{i=1}^m c_i(P_i + P)$,
 a height $h^*$ greater than any $h^*$ thus queried on, and a signature $s^* = \{S_i\}$
 such that $\sum_{i=0}^{n^*}e(G, S_i) = \sum_{i=0}^{n^*} e(P^*, H(h^*_i))$.
@@ -422,9 +429,13 @@ within a transaction be unique.\label{defn:tx}
 \end{defn}
 
 \begin{defn} We define the \emph{sum} of a transaction to be its
-outputs minus its inputs, plus its excess. If the sum is zero\footnote{By
-zero we mean the homomorphic commitment which commits to zero with
-zero blinding factor.}, we say the transaction is \emph{valid}.
+outputs minus its inputs, plus its excess. If
+\begin{itemize}
+\item the sum is zero\footnote{By zero we mean the homomorphic commitment which commits to zero with
+zero blinding factor.}, and 
+\item the rangeproofs and sinking signature are valid
+\end{itemize}
+then we say the transaction is \emph{valid}.
 \end{defn}
 
 \begin{defn} We define the \emph{canonical form} of a transaction
@@ -545,7 +556,7 @@ value.}.
 \end{itemize}
 \item A \emph{block header}, which has a binding commitment to earlier
 blocks in the chain, termed \emph{backlinks}; a commitment to the current
-UTXO set after this block's transaction has teken effect; and the transaction
+UTXO set after this block's transaction has taken effect; and the transaction
 included in this block.
 \end{itemize}
 If the block's transaction is valid, we say the block is \emph{valid}.
@@ -900,13 +911,13 @@ the Merkle tree, each of which contain logarithmically many sinking
 signatures, each of them are logarithmic in size.\end{proof}
 
 
-\section{Extensions\label{sec:ext}}
+\section{Extensions and Future Research\label{sec:ext}}
 
 \paragraph{Multisignature Outputs.} We observe that CT rangeproofs can be
 produced interactively in the same ways that Schnorr signatures can to
 produce multisignature outputs. Similarly the sinking signatures can be
 trivially produced in a multiparty way. So support for multiparty signatures,
-while not addressed in the document, is simply a matter of wallet support
+while not addressed in this article, is simply a matter of wallet support
 and requires no further changes to the system.
 
 \paragraph{Payment channels.} Bitcoin's script system supports off-chain
@@ -921,12 +932,73 @@ here is an example of a primitive Mimblewimble payment channel. Suppose that
 a party $A$ wants to send a series of payments to party $B$ of maximum value
 $V$.
 \begin{enumerate}
-\item  TODO TODO
+\item First $A$ creates a spend of $V$ coins to a multisignature output
+requiring both $A$'s and $B$'s signature to sign. $A$ ``timelocks'' this
+by taking the highest 0 bit $i$ in the current blockheight $h$, then asking
+$B$ to sign a transaction with height $h + 2^i$ returning the coins to $A$.
+Only after receiving this signature, $A$ publishes the spend.
+
+The signing signature construction ensures that such a refund transaction
+cannot be spent in any block between $h$ and $h+2^i$. On the other hand,
+this means that if $A$ wants a locktime of $2^i$ blocks he must wait for
+a blockheight that is a multiple of $2^{i+1}$ to create it.
+
+\item Now that all $V$ coins are in a multisignature output requiring both
+$A$'s and $B$'s signatures to spend (with the coins going back to $A$
+after $2^i$ blocks in case of stall), $A$ can send an amount $v$ to $B$ by
+signing a transaction from this output sending $v$ to $B$ and $(V-n)$ to $A$.
+
+\item To increase the value $v$, $A$ simply signs a new transaction with
+the new value $v$. $B$ will not sign and publish until the channel is
+near-closing, at which point $B$ can publish one transaction taking the
+whole value $v$, even if it was actually produced over the course of many
+interactions.
 \end{enumerate}
 
-\paragraph{Sidechain support.}
+\paragraph{Sidechain support.} If Mimblewimble blocks commit to a structure
+containing all peg-in transactions and all peg-out transactions (in the
+same way they commit to the UTXO set, except these structures will never
+shrink), then it is possible for Mimblewimble to be implemented as a
+pegged sidechain. This would provide a tremendous scaling benefit to its
+parent chain, since most blockchain transactions are of the simple
+transfer-of-value sort that Mimblewimble supports, and also reduce the
+risk to users of Mimblewimble from quantum computers, since it is easy to
+move coins off of a sidechain.
 
-\paragraph{Quantum resistance.}
+On a technical level, both peg-ins and peg-outs may look like transaction
+excess values which, instead of signing blockheights, sign an output on the
+destination chain. Then verifiers add this excess plus as $\pm vH$ to the
+total utxoset value (where $v$ is the value of the output).
+
+Working out the details of this, and arguing security, is left as future
+research, but it appears on a high-level that there are no open problems.
+
+\paragraph{Quantum resistance.} Since Mimblewimble depends on the discrete
+logarithm problem for security against theft and inflation, it is highly
+susceptible to attacks by quantum computers. Finding quantum-secure
+analogues to the primitives used in this paper would allow a quantum-secure
+Mimblewimble with the same asymptotic scaling properties of the original.
+Some research in this direction includes:
+\begin{itemize}
+\item Pedersen commitments can be replaced by a quantum analogue such as
+\cite{cabarcas+demirel+goepfert+lancrenon+wunderer2015}. Note that these
+commitments are not homomorphic in the strong sense of allowing arbitrarily
+many commitments to be added, since after a fixed noise threshold the
+commitments will no longer open --- however, this is not a problem since
+Mimblewimble only requires that (unmerged) transactions sum to (a non-hiding)
+commitment to zero.
+
+\item Sinking signatures can likely be replaced by a LWE-based candidate,
+or a variation of the NIZK proof-of-openings given in the above paper. The
+only interesting property required of these is that signatures on same value
+can be added to form multisignatures, which should be algebraically easy to
+obtain.
+
+\item The author is unaware of any quantum-secure rangeproofs.
+
+\item The blockchain commitments, being based on hashes, are already quantum
+secure, and the compact chain arguments go through unchanged.
+\end{itemize}
 
 \nolinenumbers
 
