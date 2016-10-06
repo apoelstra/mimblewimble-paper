@@ -34,11 +34,6 @@
 \maketitle
 
 \begin{abstract} 
-\textbf{This is still incomplete, and the author list is not finalized.
-If you have encountered this paper floating
-around the Internet, please disregard it. Sorry to be a tease. Full version
-forthcoming.}
-
 At about 04:30 UTC on the morning of August 2nd, 2016, an anonymous person
 using the name Tom Elvis Jedusor signed onto a Bitcoin research IRC channel,
 dropped a document hosted on a Tor hidden service\cite{voldemort2016}, then signed out. The
@@ -341,13 +336,13 @@ largest power of 2 that divides it (\emph{i.e.}, by clearing its least
 significant 1 bit). We observe that $x_n = 0$ and that $n$ is one plus
 the number of one bits in $x$ and is therefore $O(\log_2x)$.
 
-Next, it sets $s = \{\sk\cdot \hash(x_i\}_{i=0}^n$.
-\item $\Verify(\pk, x, p)$ computes $P$ as the sum of all elements of $p$,
-computes $H = \sum_{i=0}^n \hash(x_i)$, and checks that $e(G, P) = e(\pk, H)$.
+Finally, it outputs $s = \{\sk\cdot \hash(x_i\}_{i=0}^n$.
+\item $\Verify(\pk, x, \{s_i\})$ computes $S$ as the sum of all $s_i$,
+computes $H = \sum_{i=0}^n \hash(x_i)$, and checks that $e(G, S) = e(\pk, H)$.
 \end{itemize}
 \end{defn}
-Observe that the verification step uses only the sum $P$ of the elements
-of the proof. However, the extra data will be useful later, so we state
+Observe that the verification step uses only the sum $S$ of the elements
+of the signature. However, the extra data will be useful later, so we state
 it here so we can prove the scheme is secure with it.
 
 Correctness and summability of the scheme are immediate.
@@ -404,10 +399,14 @@ for $P^* = x^*G$, we must have
 where $R$ is the solution to $\mathcal{B}$'s CDH challenge, and every other
 term is computable by $\mathcal{B}$.
 \end{enumerate}
-TODO show we don't abort (except with probability bounded away from 1), this win condition occurs
-with nonneglible probability, also let the challenger add its own pubkeys
-(as long as it declares them) (in MW it hasta declare them because any
-"excess" it adds is the sum of a subset of outputs)
+
+To complete the proof, we must show that we abort with probability bounded
+away from 1, and that our win condition occurs with nonneglible probability.
+We observe that we only  abort if the attacker asks for a signature that
+requires $Q$ be used, and we win if $Q$ is used in the attacker's forgery.
+
+\emph{Both} occur if $H(h^*) = Q$, which has probability $1/q_h$, which
+completes the proof.
 \end{proof}
 
 \subsection{Mimblewimble Primitives}
@@ -998,6 +997,16 @@ obtain.
 
 \item The blockchain commitments, being based on hashes, are already quantum
 secure, and the compact chain arguments go through unchanged.
+\end{itemize}
+
+\section{Acknowledgements}
+
+The author would like to thank
+\begin{itemize}
+\item Avi Kulkarni for developing the sinking signature construction described
+in the paper (and breaking the author's original construction).
+\item Gregory Sanders for asking probing questions about Mimblewimble's
+guarantees until a clear picture of its consensus structure appeared.
 \end{itemize}
 
 \nolinenumbers
