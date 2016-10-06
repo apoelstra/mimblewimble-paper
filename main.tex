@@ -50,9 +50,10 @@ further scaling improvements developed by the author.
 
 In particular, Mimblewimble shrinks the transaction history such that a
 chain with Bitcoin's history would need 15Gb of data to record every
-transaction. Jedusor left open a problem of how to reduce this data;
-we solve this, and combine it with existing research for compressing
-proof-of-work blockchains, to reduce this 15Gb to less than a megabyte.
+transaction (not including the UTXO set, which including rangeproofs,
+would take over 100Gb). Jedusor left open a problem of how to reduce
+this; we solve this, and combine it with existing research for compressing
+proof-of-work blockchains, to reduce the 15Gb to less than a megabyte.
 \end{abstract}
 
 \paragraph{License.} This work is released into the public domain.
