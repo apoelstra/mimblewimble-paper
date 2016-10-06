@@ -195,17 +195,16 @@ or inflationary, but since a legitimate path exists, all these things must
 have netted out to zero.
 \end{itemize}
 
-\item As detailed in Section \ref{proven_expected}, verifiers may see
-multiple blockchains; they compute the \emph{total work} $D$ of each
-chain and declare the one with the largest $D$ to be the valid one, as
-in Bitcoin.
+\item Like Bitcoin, verifiers may see multiple differing blockchains, and
+select the valid one as the one with the greatest \emph{total work}. This
+is detailed in Section \ref{proven_expected}.
 
-However, in Bitcoin, this value $D$ represents both the \emph{expected work}
+However, in Bitcoin the total work represents both the \emph{expected work}
 to produce such a blockchain as well as the \emph{proven work} of the chain,
-in the sense that any party who expends significantly less than $D$ work
+in the sense that any party who expends significantly less than this much work
 will be unable to produce such a chain except with negligible probability.
 
-Mimblewimble, on the other hand, separates these. The total work $D$ still
+Mimblewimble, on the other hand, separates these. The total work still
 represents the expected work to produce the blockchain, and therefore
 incentivizes rational actors to contribute to the most-work chain rather
 than rewriting it. The proven work, on the other hand, is capped at some
