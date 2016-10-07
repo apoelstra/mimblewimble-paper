@@ -49,11 +49,11 @@ The purpose of this paper is to make precise the original idea, and add
 further scaling improvements developed by the author.
 
 In particular, Mimblewimble shrinks the transaction history such that a
-chain with Bitcoin's history would need 15Gb of data to record every
+chain with Bitcoin's history would need 15GB of data to record every
 transaction (not including the UTXO set, which including rangeproofs,
-would take over 100Gb). Jedusor left open a problem of how to reduce
+would take over 100GB). Jedusor left open a problem of how to reduce
 this; we solve this, and combine it with existing research for compressing
-proof-of-work blockchains, to reduce the 15Gb to less than a megabyte.
+proof-of-work blockchains, to reduce the 15GB to less than a megabyte.
 \end{abstract}
 
 \paragraph{License.} This work is released into the public domain.
@@ -82,7 +82,7 @@ illegal inflation), must download and validate the entire history from the
 system's genesis in 2009 until today. In other words, they must download
 and ``replay'' every transaction that has ever occurred.
 
-Today the Bitcoin blockchain sits just shy of 100Gb on the author's disk.
+Today the Bitcoin blockchain sits just shy of 100GB on the author's disk.
 Had Bitcoin used Confidential Transactions\cite{maxwell2015} (CT), each of the
 approximately 430 million outputs would consume 2.5Kb each, totalling over
 a terabyte of historical data\footnote{The author is aware of unpublished
@@ -159,7 +159,7 @@ elliptic curve, and focused optimization work, this number can surely
 be improved.}.
 
 On the other hand, Bitcoin's current state of 40 million unspent outputs
-would grow to 100Gb and a few days of verification on a modern CPU, thanks
+would grow to 100GB and a few days of verification on a modern CPU, thanks
 to Mimblewimble's use of confidential transitions. It is an open problem
 how to improve this. We observe that even without cryptographic improvements,
 it would go a long way to simply cap the UTXO set size as a function of
@@ -222,7 +222,7 @@ elliptic curve groups adorned with an efficiently computable bilinear pairing
 $\e:\mathcal{G}_1\times\mathcal{G}_2\to\mathcal{G}_T$, with $\mathcal{G}_T$
 equal to the multiplicative group of $\mathbb{F}_{q^k}$ for some prime $q$,
 small positive integer $k$. We further require both $\mathcal{G}_1$ and
-$\mathbb{G}_2$ to have prime order $r$. Let $G$, $H$ be fixed generators of
+$\mathcal{G}_2$ to have prime order $r$. Let $G$, $H$ be fixed generators of
 $\mathcal{G}_1$ whose discrete logarithms relative to each other are unknown
 (\emph{i.e.} they are nothing-up-my-sleeve (NUMS) points; $\mathcal{G}_2$
 does not need any canonical generators. We will make computational hardness
